@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+motor
+pymongo
+passlib[bcrypt]
+python-jose[cryptography]
+opencv-python
+numpy
+deepface
+tf-keras
+certifi
+dnspython
