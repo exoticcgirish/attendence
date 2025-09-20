@@ -1,59 +1,60 @@
-# auth.py
-
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from motor.motor_asyncio import AsyncIOMotorClient
+# Import the specific types for more accurate type hinting
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from passlib.context import CryptContext
 
-# Import the new dependency and DB names from db.py
 from db import get_db_client, MAIN_AUTH_DB_NAME
 from models import Teacher
 
 # --- Configuration ---
-SECRET_KEY = "your-super-secret-key" # Change this to a real, random secret key
+
+# ⚠️ IMPORTANT: Generate your own secret key and store it securely!
+# You can generate one with: python -c 'import secrets; print(secrets.token_urlsafe(32))'
+SECRET_KEY = "W0_I5djRRNR_oQKFLRcDUTlTo-Su4nmy9NPNs4optHY" 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-# Password hashing
+# --- Setup ---
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # --- Functions ---
 
-def verify_password(plain_password, hashed_password):
+def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
-def get_password_hash(password):
+def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-async def authenticate_teacher(db: AsyncIOMotorClient, username: str, password: str):
+# The type hint is now more specific (AsyncIOMotorDatabase)
+async def authenticate_teacher(db: AsyncIOMotorDatabase, username: str, password: str):
     """Finds a teacher in the DB and verifies their password."""
     teacher = await db.teachers.find_one({"username": username})
-    if not teacher:
-        return False
-    if not verify_password(password, teacher["hashed_password"]):
+    if not teacher or not verify_password(password, teacher["hashed_password"]):
         return False
     return teacher
 
 async def get_current_teacher(
     token: str = Depends(oauth2_scheme),
-    # Use the new dependency here
     db_client: AsyncIOMotorClient = Depends(get_db_client) 
-):
+) -> dict:
     """Decodes the JWT token to get the current logged-in teacher."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -68,7 +69,6 @@ async def get_current_teacher(
     except JWTError:
         raise credentials_exception
     
-    # Get the correct database from the client
     main_auth_db = db_client[MAIN_AUTH_DB_NAME]
     teacher = await main_auth_db.teachers.find_one({"username": username})
     

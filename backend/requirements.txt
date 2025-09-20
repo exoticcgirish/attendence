@@ -1,13 +1,8 @@
 fastapi
 uvicorn[standard]
 motor
-pymongo
+numpy
+opencv-python
+deepface
 passlib[bcrypt]
 python-jose[cryptography]
-opencv-python
-numpy
-deepface
-tf-keras
-certifi
-dnspython
-python-multipart

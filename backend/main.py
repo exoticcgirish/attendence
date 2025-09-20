@@ -1,21 +1,25 @@
-# main.py
+import datetime
+import zoneinfo 
+from datetime import timedelta# Modern way to handle timezones
+import base64
+import os
+from typing import List, Any
 
+from bson import ObjectId
+from pydantic import BaseModel, Field
+from pydantic.json_schema import GetJsonSchemaHandler
+from pydantic_core import core_schema
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from motor.motor_asyncio import AsyncIOMotorClient
-from datetime import datetime, timedelta
 import numpy as np
 import cv2
-import base64
-import os
 from deepface import DeepFace
 
-# This is the correct import statement
+# Your existing imports for your project structure
 from db import get_db_client, MAIN_AUTH_DB_NAME, SCHOOL_DB_NAME
-from models import (
-    Token, StudentRegister, ImageInput, Teacher
-)
+from models import Token, StudentRegister, ImageInput, Teacher
 from auth import (
     create_access_token, get_current_teacher,
     ACCESS_TOKEN_EXPIRE_MINUTES, authenticate_teacher, get_password_hash
@@ -26,6 +30,7 @@ app = FastAPI()
 FACE_DB_PATH = "student_face_db"
 os.makedirs(FACE_DB_PATH, exist_ok=True)
 
+# CORS Middleware
 origins = ["http://localhost:5173", "http://localhost"]
 app.add_middleware(
     CORSMiddleware,
@@ -35,9 +40,47 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-IST_OFFSET = timedelta(hours=5, minutes=30)
 
-# The rest of the file remains the same...
+# --- Pydantic Models & Custom Types for API ---
+
+# Pydantic V2 compatible class to handle MongoDB's ObjectId
+class PyObjectId(ObjectId):
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler
+    ) -> core_schema.CoreSchema:
+        def validate_from_str(v: str) -> ObjectId:
+            if not ObjectId.is_valid(v):
+                raise ValueError("Invalid ObjectId")
+            return ObjectId(v)
+        return core_schema.union_schema(
+            [
+                core_schema.is_instance_schema(ObjectId),
+                core_schema.no_info_plain_validator_function(validate_from_str),
+            ],
+            serialization=core_schema.to_string_ser_schema(),
+        )
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, core_schema: core_schema.CoreSchema, handler: GetJsonSchemaHandler
+    ) -> dict[str, Any]:
+        return {"type": "string", "format": "ObjectId"}
+
+# Pydantic model for the attendance report response
+class AttendanceRecord(BaseModel):
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    roll_no: str
+    name: str
+    timestamp: datetime.datetime
+    teacher_username: str
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+
+
+# --- API Endpoints ---
 
 @app.post("/token", response_model=Token)
 async def login_for_access_token(
@@ -70,7 +113,7 @@ async def register_teacher(
     hashed_password = get_password_hash(password)
     teacher_doc = {"username": username, "hashed_password": hashed_password}
     await main_auth_db.teachers.insert_one(teacher_doc)
-    return {"status": f"teacher {username} created successfully"}
+    return {"status": f"Teacher '{username}' created successfully"}
 
 @app.post("/api/register-student")
 async def register_student(
@@ -79,7 +122,6 @@ async def register_student(
     current_teacher: Teacher = Depends(get_current_teacher)
 ):
     school_db = db_client[SCHOOL_DB_NAME]
-    
     try:
         student_document = {
             "name": student.name,
@@ -100,30 +142,29 @@ async def register_student(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/attendance-report")
+@app.get("/api/attendance-report", response_model=List[AttendanceRecord])
 async def get_attendance_report(
     date: str,
     db_client: AsyncIOMotorClient = Depends(get_db_client),
     current_teacher: Teacher = Depends(get_current_teacher)
 ):
     school_db = db_client[SCHOOL_DB_NAME]
-    
     try:
-        start_date_ist = datetime.fromisoformat(date)
-        end_date_ist = start_date_ist + timedelta(days=1)
+        report_date = datetime.date.fromisoformat(date)
+        ist_tz = zoneinfo.ZoneInfo("Asia/Kolkata")
+        
+        # Create timezone-aware datetime objects for the query
+        start_of_day = datetime.datetime.combine(report_date, datetime.time.min, tzinfo=ist_tz)
+        end_of_day = start_of_day + timedelta(days=1)
 
         query = {
-            "timestamp": {"$gte": start_date_ist, "$lt": end_date_ist},
+            "timestamp": {"$gte": start_of_day, "$lt": end_of_day},
             "teacher_username": current_teacher['username']
         }
         records = await school_db.attendance.find(query).to_list(length=None)
-
-        for record in records:
-            record["_id"] = str(record["_id"])
-            if "timestamp" in record and isinstance(record["timestamp"], datetime):
-                record["timestamp"] = record["timestamp"].isoformat()
-
         return records
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -141,58 +182,50 @@ async def mark_attendance(
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         cv2.imwrite(temp_img_path, img)
 
-        dfs = DeepFace.find(
+        dfs_list = DeepFace.find(
             img_path=temp_img_path,
             db_path=FACE_DB_PATH,
-            enforce_detection=True 
+            enforce_detection=True
         )
         
-        if not dfs or dfs[0].empty:
-            os.remove(temp_img_path)
-            return {"status": "error", "message": "Unknown student"}
+        if not dfs_list or dfs_list[0].empty:
+            return {"status": "error", "message": "Face recognized but no match in database."}
         
-        identity_path = dfs[0].iloc[0]['identity']
+        identity_path = dfs_list[0].iloc[0]['identity']
         roll_no = os.path.basename(identity_path).split('.')[0]
 
         student = await school_db.students.find_one({"roll_no": roll_no})
         if not student:
-            os.remove(temp_img_path)
-            return {"status": "error", "message": "Face recognized but student data not found."}
+            return {"status": "error", "message": "Face matched but student data not found."}
         
         teacher_username = student.get("teacher_username")
         if not teacher_username:
-             os.remove(temp_img_path)
              return {"status": "error", "message": "Student found but not assigned to a teacher."}
 
-        now_ist = datetime.utcnow() + IST_OFFSET
-        start_of_day = datetime(now_ist.year, now_ist.month, now_ist.day)
+        # ✅ Use timezone-aware datetime for accuracy
+        ist_tz = zoneinfo.ZoneInfo("Asia/Kolkata")
+        now_ist = datetime.datetime.now(ist_tz)
+        start_of_day_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
         
-        existing_attendance = await school_db.attendance.find_one({
-            "roll_no": roll_no,
-            "timestamp": {"$gte": start_of_day}
-        })
-        if existing_attendance:
-            os.remove(temp_img_path)
-            return {"status": "already_marked", "message": f"Attendance already marked for today: {student['name']}"}
+        if await school_db.attendance.find_one({"roll_no": roll_no, "timestamp": {"$gte": start_of_day_ist}}):
+            return {"status": "already_marked", "message": f"Attendance already marked for {student['name']} today."}
 
         attendance_record = {
             "student_id": str(student["_id"]),
             "name": student["name"],
             "roll_no": student["roll_no"],
             "teacher_username": teacher_username,
-            "timestamp": now_ist
+            "timestamp": now_ist  # Store the timezone-aware datetime object
         }
         await school_db.attendance.insert_one(attendance_record)
-        os.remove(temp_img_path)
         
         return {"status": "success", "name": student["name"], "roll_no": student["roll_no"]}
 
+    except ValueError as ve: # Catches DeepFace's "Face could not be detected" error
+        return {"status": "error", "message": "Face not clear. Please look directly at the camera."}
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # ✅ Ensures the temporary file is always deleted
         if os.path.exists(temp_img_path):
             os.remove(temp_img_path)
-        
-        if "Face could not be detected" in str(e):
-             return {"status": "error", "message": "Face not clear. Please look directly at the camera."}
-             
-        raise HTTPException(status_code=500, detail=str(e))
-    
