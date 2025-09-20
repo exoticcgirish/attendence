@@ -1,23 +1,28 @@
+# auth.py
+
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
 from fastapi import Depends, HTTPException, status
-# from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
-from datetime import datetime, timedelta
-from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient
+from passlib.context import CryptContext
 
-from db import get_db
-from models import TokenData, TeacherInDB
+# Import the new dependency and DB names from db.py
+from db import get_db_client, MAIN_AUTH_DB_NAME
+from models import Teacher
 
 # --- Configuration ---
-SECRET_KEY = "YOUR_VERY_SECRET_KEY"  # Change this!
+SECRET_KEY = "your-super-secret-key" # Change this to a real, random secret key
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
+# Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+# --- Functions ---
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
@@ -25,19 +30,18 @@ def verify_password(plain_password, hashed_password):
 def get_password_hash(password):
     return pwd_context.hash(password)
 
-# --- Token Creation ---
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-# --- Authenticate Teacher ---
 async def authenticate_teacher(db: AsyncIOMotorClient, username: str, password: str):
+    """Finds a teacher in the DB and verifies their password."""
     teacher = await db.teachers.find_one({"username": username})
     if not teacher:
         return False
@@ -45,9 +49,12 @@ async def authenticate_teacher(db: AsyncIOMotorClient, username: str, password: 
         return False
     return teacher
 
-# --- Get Current Teacher (Dependency) ---
-# This is the function that protects your routes!
-async def get_current_teacher(token: str = Depends(oauth2_scheme), db: AsyncIOMotorClient = Depends(get_db)):
+async def get_current_teacher(
+    token: str = Depends(oauth2_scheme),
+    # Use the new dependency here
+    db_client: AsyncIOMotorClient = Depends(get_db_client) 
+):
+    """Decodes the JWT token to get the current logged-in teacher."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -58,18 +65,13 @@ async def get_current_teacher(token: str = Depends(oauth2_scheme), db: AsyncIOMo
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
-        token_data = TokenData(username=username)
     except JWTError:
         raise credentials_exception
     
-    teacher = await db.teachers.find_one({"username": token_data.username})
+    # Get the correct database from the client
+    main_auth_db = db_client[MAIN_AUTH_DB_NAME]
+    teacher = await main_auth_db.teachers.find_one({"username": username})
+    
     if teacher is None:
         raise credentials_exception
     return teacher
-
-
-
-
-
-
-
