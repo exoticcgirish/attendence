@@ -2,42 +2,75 @@ import React, { useRef, useState, useCallback } from "react";
 import Webcam from "react-webcam";
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, CheckCircle2, AlertCircle } from "lucide-react";
+import { Camera, CheckCircle2, AlertCircle, MapPin } from "lucide-react";
 
 const API_URL = "http://localhost:8000/api/mark-attendance";
 
 function ScanPage() {
   const webcamRef = useRef(null);
-  const [message, setMessage] = useState("Please scan your face.");
+  const [message, setMessage] = useState("Position your face to scan.");
   const [isError, setIsError] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false); // New state for success styling
   const [isLoading, setIsLoading] = useState(false);
 
   const capture = useCallback(async () => {
-    setMessage("Processing...");
-    setIsError(false);
+    // Reset states
     setIsLoading(true);
+    setIsError(false);
+    setIsSuccess(false);
+    setMessage("Getting your location...");
 
-    const imageSrc = webcamRef.current.getScreenshot();
-
-    if (!imageSrc) {
-      setMessage("Could not capture image.");
+    // 1. Geolocation Check
+    if (!navigator.geolocation) {
+      setMessage("Geolocation is not supported by your browser.");
       setIsError(true);
       setIsLoading(false);
       return;
     }
 
+    navigator.geolocation.getCurrentPosition(
+      // Success Callback
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setMessage("Location found. Scanning face...");
+
+        const imageSrc = webcamRef.current.getScreenshot();
+        if (!imageSrc) {
+          setMessage("Could not capture image. Please try again.");
+          setIsError(true);
+          setIsLoading(false);
+          return;
+        }
+        // 2. Send Image and Location Data
+        markAttendance(imageSrc, latitude, longitude);
+      },
+      // Error Callback
+      () => {
+        setMessage("Please enable location services to mark attendance.");
+        setIsError(true);
+        setIsLoading(false);
+      }
+    );
+  }, []);
+
+  const markAttendance = async (image_data, latitude, longitude) => {
     try {
-      const response = await axios.post(API_URL, { image_data: imageSrc });
+      const response = await axios.post(API_URL, {
+        image_data,
+        latitude,
+        longitude,
+      });
       const data = response.data;
 
       if (data.status === "success") {
         setMessage(`Marked Present: ${data.name} (Roll: ${data.roll_no})`);
-        setIsError(false);
+        setIsSuccess(true);
       } else if (data.status === "already_marked") {
-        setMessage(`${data.message}`);
+        setMessage(data.message);
+        setIsSuccess(false); // Not an error, but not a new success
         setIsError(false);
       } else {
-        setMessage(data.message || "Unknown student.");
+        setMessage(data.message || "Attendance failed.");
         setIsError(true);
       }
     } catch (err) {
@@ -47,37 +80,40 @@ function ScanPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [webcamRef]);
+  };
+
+  // Determine text color based on state
+  const getTextColor = () => {
+    if (isError) return "text-red-400";
+    if (isSuccess) return "text-emerald-400";
+    return "text-gray-300"; // Default/info color
+  };
 
   return (
-    <div className='absolute inset-0 flex flex-col items-center justify-center overflow-hidden bg-gradient-to-br from-gray-950 via-slate-900 to-gray-800 text-gray-100'>
-      {/* Title (just below navbar, no extra margin) */}
+    <div className='absolute inset-0 flex flex-col items-center justify-center overflow-hidden bg-gradient-to-br from-gray-950 via-slate-900 to-gray-800 text-gray-100 p-4'>
       <motion.h1
         initial={{ y: -40, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 1 }}
-        className='mt-20 text-4xl md:text-5xl font-extrabold text-white mb-8 tracking-tight z-10 relative'
+        className='mt-20 text-4xl md:text-5xl font-extrabold text-white mb-8 tracking-tight text-center z-10 relative'
       >
         Student Attendance Scanner
       </motion.h1>
 
-      {/* Webcam container */}
       <motion.div
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ duration: 0.8, ease: "easeOut" }}
-        className='relative w-full max-w-3xl p-4 rounded-3xl bg-white/5 backdrop-blur-lg border border-white/10 shadow-2xl flex justify-center z-10 overflow-hidden'
+        className='relative w-full max-w-2xl p-2 sm:p-4 rounded-3xl bg-white/5 backdrop-blur-lg border border-white/10 shadow-2xl flex justify-center z-10 overflow-hidden'
       >
         <Webcam
           audio={false}
-          height={480}
-          width={640}
           ref={webcamRef}
+          mirrored={true}
           screenshotFormat='image/jpeg'
-          className='rounded-2xl shadow-lg border border-white/10'
+          className='rounded-2xl shadow-lg border border-white/10 w-full h-auto'
         />
 
-        {/* Scanning line */}
         {isLoading && (
           <motion.div
             className='absolute inset-0 rounded-2xl overflow-hidden'
@@ -88,7 +124,6 @@ function ScanPage() {
           </motion.div>
         )}
 
-        {/* Border glow */}
         {isLoading && (
           <motion.div
             className='absolute inset-0 rounded-2xl border-2 border-teal-400/70 shadow-[0_0_30px_rgba(0,245,212,0.4)]'
@@ -98,54 +133,50 @@ function ScanPage() {
         )}
       </motion.div>
 
-      {/* Info card */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className='mt-6 px-6 py-4 max-w-md rounded-xl bg-white/10 backdrop-blur-md border border-white/10 shadow-lg text-sm text-gray-200 flex items-center space-x-3'
+        className='mt-6 px-4 py-3 max-w-md w-full rounded-xl bg-white/10 backdrop-blur-md border border-white/10 shadow-lg text-sm text-gray-200 flex items-center justify-center space-x-3 text-center'
       >
-        <Camera className='w-5 h-5 text-teal-400' />
-        <span>Position your face in front of the camera for scanning.</span>
+        <MapPin className='w-5 h-5 text-teal-400 flex-shrink-0' />
+        <span>
+          This system requires location access to verify you are on campus.
+        </span>
       </motion.div>
 
-      {/* Button */}
       <motion.button
-        whileHover={{
-          scale: 1.05,
-          backgroundPosition: "200% 0",
-          boxShadow:
-            "0 0 25px rgba(0,245,212,0.5), 0 0 50px rgba(99,102,241,0.4)",
-        }}
+        whileHover={{ scale: 1.05, backgroundPosition: "200% 0" }}
         whileTap={{ scale: 0.95 }}
         onClick={capture}
         disabled={isLoading}
-        className='mt-8 w-full max-w-xs py-3 px-6 rounded-xl font-semibold text-lg text-white bg-gradient-to-r from-teal-500 via-indigo-500 to-cyan-500 bg-[length:200%_200%] transition-all duration-500 disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden'
+        className='mt-8 w-full max-w-xs py-3 px-6 rounded-xl font-semibold text-lg text-white bg-gradient-to-r from-teal-500 via-indigo-500 to-cyan-500 bg-[length:200%_200%] transition-all duration-500 disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden shadow-lg'
       >
         {isLoading ? "Processing..." : "Mark My Attendance"}
       </motion.button>
 
-      {/* Status message with icons */}
-      <AnimatePresence>
-        {message && (
-          <motion.div
-            key={message}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.4 }}
-            className={`mt-6 flex items-center space-x-2 text-lg font-medium z-10 relative ${
-              isError ? "text-red-400" : "text-emerald-400"
-            }`}
-          >
-            {isError ? (
-              <AlertCircle className='w-5 h-5' />
-            ) : (
-              <CheckCircle2 className='w-5 h-5' />
-            )}
-            <span>{message}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <div className='h-12 mt-6 flex items-center'>
+        <AnimatePresence>
+          {message && (
+            <motion.div
+              key={message} // Re-triggers animation when message text changes
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.4 }}
+              className={`flex items-center space-x-2 text-lg font-medium z-10 relative ${getTextColor()}`}
+            >
+              {isError ? (
+                <AlertCircle className='w-5 h-5' />
+              ) : isSuccess ? (
+                <CheckCircle2 className='w-5 h-5' />
+              ) : (
+                <Camera className='w-5 h-5' />
+              )}
+              <span className='text-center'>{message}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }

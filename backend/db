@@ -1,3 +1,4 @@
+
 # db.py
 
 import motor.motor_asyncio
@@ -13,8 +14,9 @@ ESCAPED_PASSWORD = urllib.parse.quote_plus(PASSWORD)
 MONGO_DETAILS = f"mongodb+srv://{USERNAME}:{ESCAPED_PASSWORD}@{CLUSTER_URL}/?retryWrites=true&w=majority&appName=Cluster0"
 
 # --- Database Names ---
-MAIN_AUTH_DB_NAME = "main_auth_db"  
-SCHOOL_DB_NAME = "school_db"        
+MAIN_AUTH_DB_NAME = "main_auth_db"  # Stores all teacher login credentials
+SCHOOL_DB_NAME = "school_db"        # Stores ALL students and attendance records
+
 try:
     client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_DETAILS)
     client.admin.command('ping')

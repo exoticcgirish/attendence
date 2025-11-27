@@ -7,7 +7,6 @@ const Navbar = () => {
   const loggedIn = isLoggedIn();
   const [hasMounted, setHasMounted] = useState(false);
 
-  // Play mount animation
   useEffect(() => {
     setHasMounted(true);
   }, []);
@@ -24,9 +23,7 @@ const Navbar = () => {
       }`}
     >
       <div className='flex justify-between items-center max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3'>
-        {/* Left Side: Brand and Navigation */}
         <div className='flex items-center space-x-8'>
-          {/* Brand Logo and Name */}
           <Link
             to='/'
             className='flex items-center gap-2 text-xl font-bold text-white transition-colors hover:text-sky-400'
@@ -44,17 +41,22 @@ const Navbar = () => {
               <path d='M5 12h14M12 5l7 7-7 7' />
               <path d='M3 3h2v2H3zM8 3h2v2H8zM13 3h2v2h-2zM18 3h2v2h-2zM3 8h2v2H3zM3 13h2v2H3zM3 18h2v2H3zM8 18h2v2H8zM13 18h2v2h-2zM18 18h2v2h-2z' />
             </svg>
-            <span className='hidden sm:inline'>ScanTrack</span>
+            <span className='hidden sm:inline'>ScanYourFace</span>
+          </Link>
+          <Link
+            className='sm:inline ml-20 items-center gap-2 text-xl font-bold text-white transition-colors hover:text-sky-400'
+            to='/student'
+          >
+            Student Login
           </Link>
 
-          {/* Navigation Links */}
           <div className='hidden md:flex items-center space-x-6'>
             {loggedIn && (
               <Link
                 to='/admin'
                 className='relative font-medium text-gray-300 transition-colors hover:text-white 
                 after:absolute after:bottom-[-4px] after:left-0 after:h-0.5 after:w-full after:origin-left after:scale-x-0 
-                after:bg-sky-400 after:transition-transform hover:after:scale-x-100 focus:outline-none focus-visible:after:scale-x-100'
+                after:bg-sky-400 after:transition-transform hover:after:scale-x-100 focus:outline-none focus-visible:after:scale-x-100 ml-20'
               >
                 Admin Panel
               </Link>
@@ -62,7 +64,6 @@ const Navbar = () => {
           </div>
         </div>
 
-        {/* Right Side: Authentication Button */}
         <div>
           {!loggedIn ? (
             <Link

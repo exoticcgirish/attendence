@@ -8,29 +8,26 @@ from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from passlib.context import CryptContext
 
 from db import get_db_client, MAIN_AUTH_DB_NAME
+from models import Teacher
 
-SECRET_KEY = "W0_I5djRRNR_oQKFLRcDUTlTo-Su4nmy9NPNs4optHY"
+
+SECRET_KEY = "W0_I5djRRNR_oQKFLRcDUTlTo-Su4nmy9NPNs4optHY" 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Compares a plain-text password with a stored hash."""
     return pwd_context.verify(plain_password, hashed_password)
 
 def get_password_hash(password: str) -> str:
-    """Generates a secure hash for a given password."""
     return pwd_context.hash(password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Creates a new JWT access token."""
     to_encode = data.copy()
-    
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
@@ -40,24 +37,18 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-async def authenticate_teacher(db: AsyncIOMotorDatabase, username: str, password: str) -> Optional[dict]:
-    """
-    Finds a teacher in the database and verifies their password.
-    Returns the teacher document if successful, otherwise None.
-    """
+async def authenticate_teacher(db: AsyncIOMotorDatabase, username: str, password: str):
+    """Finds a teacher in the DB and verifies their password."""
     teacher = await db.teachers.find_one({"username": username})
-    if not teacher or not verify_password(password, teacher.get("hashed_password", "")):
-        return None
+    if not teacher or not verify_password(password, teacher["hashed_password"]):
+        return False
     return teacher
 
 async def get_current_teacher(
     token: str = Depends(oauth2_scheme),
     db_client: AsyncIOMotorClient = Depends(get_db_client) 
 ) -> dict:
-    """
-    FastAPI dependency that decodes the JWT token to identify and return
-    the current logged-in teacher. This is used to protect routes.
-    """
+    """Decodes the JWT token to get the current logged-in teacher."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",

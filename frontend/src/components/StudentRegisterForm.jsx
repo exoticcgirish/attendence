@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback } from "react";
 import Webcam from "react-webcam";
 import axios from "axios";
-import { authHeader } from "../auth"; // Import auth header
+import { authHeader } from "../auth";
 
 const REGISTER_API_URL = "http://localhost:8000/api/register-student";
 
@@ -53,7 +53,6 @@ function StudentRegisterForm() {
         Register New Student
       </h2>
 
-      {/* Form Fields */}
       <div className='flex flex-col sm:flex-row gap-4 mb-6'>
         <input
           type='text'
@@ -71,7 +70,6 @@ function StudentRegisterForm() {
         />
       </div>
 
-      {/* Webcam */}
       <div className='flex justify-center mb-6'>
         <div className='border border-gray-300 rounded-xl shadow-md overflow-hidden bg-black'>
           <Webcam
@@ -79,6 +77,7 @@ function StudentRegisterForm() {
             height={360}
             width={480}
             ref={webcamRef}
+            mirrored={true}
             screenshotFormat='image/jpeg'
             className='rounded-md'
             videoConstraints={{
@@ -90,7 +89,6 @@ function StudentRegisterForm() {
         </div>
       </div>
 
-      {/* Register Button */}
       <button
         onClick={captureAndRegister}
         className='w-full bg-green-500 hover:bg-green-600 text-white font-semibold text-lg px-4 py-3 rounded-lg shadow-md transition-all duration-300'
@@ -98,7 +96,6 @@ function StudentRegisterForm() {
         📸 Take Photo & Register Student
       </button>
 
-      {/* Feedback Message */}
       {message && (
         <p
           className={`mt-4 text-center font-medium ${
